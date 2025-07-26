@@ -1,0 +1,6 @@
+{
+    "name": "lokesh/pdf-backend",
+    "require": {
+        "smalot/pdfparser": "^2.12"
+    }
+}
