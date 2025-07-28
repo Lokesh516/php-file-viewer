@@ -3,7 +3,7 @@ DirectoryIndex index.html index.php
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
-  # Serve existing files normally
+  # Serve files normally
   RewriteCond %{REQUEST_FILENAME} -f
   RewriteRule ^ - [L]
 
