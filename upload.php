@@ -22,7 +22,7 @@ try {
     }
 
     
-    $contextUrl = 'http://localhost/notebooklm-clone/backend/build_pdf_context.php';
+    $contextUrl = 'https://php-file-viewer-1.onrender.com/build_pdf_context.php';
     $postData = ['file' => $file['name']];
 
     $ch = curl_init($contextUrl);
