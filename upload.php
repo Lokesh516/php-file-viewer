@@ -22,7 +22,7 @@ try {
     }
 
     
-    $contextUrl = 'https://php-file-viewer-1.onrender.com/build_pdf_context.php';
+    $contextUrl = 'https://viewer-app-4t7c.onrender.com/build_pdf_context.php';
     $postData = ['file' => $file['name']];
 
     $ch = curl_init($contextUrl);
