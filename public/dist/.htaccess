@@ -3,12 +3,15 @@ DirectoryIndex index.html index.php
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
-  # Serve files normally
-  RewriteCond %{REQUEST_FILENAME} -f
+  # ✅ Let PHP files run server-side
+  RewriteCond %{REQUEST_URI} \.php$
   RewriteRule ^ - [L]
 
-  # Redirect everything else to React
-  RewriteCond %{REQUEST_FILENAME} !-f
-  RewriteCond %{REQUEST_FILENAME} !-d
+  # ✅ Let existing files and folders through
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # ➡️ Everything else goes to React
   RewriteRule ^ index.html [L]
 </IfModule>
