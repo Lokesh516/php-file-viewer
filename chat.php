@@ -26,7 +26,7 @@ $cohereApiKey = 'EUniydFgiUsxVeojRO8DH3Kd6Mzs6ILZrATQr5VO';
 
 
 function fetchContext($question, $filename) {
-    $url = 'http://localhost/notebooklm-clone/backend/match_context.php';
+    $url = 'https://viewer-app-4t7c.onrender.com/match_context.php';
     $payload = json_encode(['question' => $question, 'file' => $filename]);
 
     $ch = curl_init($url);
