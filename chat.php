@@ -1,5 +1,5 @@
 <?php
-
+// CORS and JSON headers
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Headers: Content-Type");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
@@ -10,21 +10,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
-
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     exit();
 }
 
-
 $data = json_decode(file_get_contents('php://input'), true);
 $question = $data['question'] ?? '';
 $filename = $data['file'] ?? '';
 
-
+// Cohere API Key
 $cohereApiKey = 'EUniydFgiUsxVeojRO8DH3Kd6Mzs6ILZrATQr5VO';
 
-
+// 1. Fetch matched context from context server
 function fetchContext($question, $filename) {
     $url = 'https://viewer-app-4t7c.onrender.com/match_context.php';
     $payload = json_encode(['question' => $question, 'file' => $filename]);
@@ -37,35 +35,66 @@ function fetchContext($question, $filename) {
         CURLOPT_POSTFIELDS => $payload
     ]);
     $response = curl_exec($ch);
-    $error = curl_error($ch);
     curl_close($ch);
 
-    if ($error || !$response) {
-        return ['error' => 'Error fetching context', 'debug' => $error];
-    }
-
     $data = json_decode($response, true);
-    if (!$data || !isset($data['context'])) {
-        return ['error' => 'Invalid context response', 'raw' => $response];
-    }
-
-    return $data['context'];
+    return $data['context'] ?? [];
 }
 
+// 2. Extract text per page using Smalot/pdfparser
+function extractPdfPages($pdfPath) {
+    require_once 'vendor/autoload.php';
+    $parser = new \Smalot\PdfParser\Parser();
+    $pdf = $parser->parseFile($pdfPath);
+    $pages = $pdf->getPages();
+    return array_map(fn($page) => $page->getText(), $pages);
+}
+
+// 3. Normalize for fuzzy matching
+function normalizeText($text) {
+    return strtolower(trim(preg_replace('/[^a-zA-Z0-9\s]/', '', $text)));
+}
+
+// 4. Match response fragments to PDF pages with majority voting
+function matchPagesFromAnswer($answerText, $filename) {
+    $pdfPath = __DIR__ . "/uploads/$filename";
+    $pages = extractPdfPages($pdfPath);
+    $fragments = preg_split('/(?<=[.!?])\s+|,\s+|[\r\n]+|•\s*/', $answerText);
+    $pageHits = [];
+
+    foreach ($fragments as $frag) {
+        $normFrag = normalizeText($frag);
+        if ($normFrag === '') continue;
+
+        foreach ($pages as $i => $pgText) {
+            $normPage = normalizeText($pgText);
+            if (strpos($normPage, $normFrag) !== false) {
+                $pageHits[] = $i + 1;
+                break;
+            }
+        }
+    }
+
+    // Count frequency and sort highest first
+    $counts = array_count_values($pageHits);
+    arsort($counts);
+    $topPages = array_keys($counts);
+
+    return $topPages;
+}
+
+
+// 5. Prepare context and prompt
 $chunks = fetchContext($question, $filename);
-if (isset($chunks['error'])) {
+if (!$chunks) {
+    echo json_encode(['answer' => 'No context available.']);
     exit();
 }
 
+$contextText = implode("\n\n", $chunks);
+$prompt = "Answer the following question using the given context:\n\nContext:\n$contextText\n\nQuestion:\n$question\n\nProvide a clear and concise answer based only on the context.";
 
-$stampedChunks = [];
-foreach ($chunks as $chunk) {
-    $stampedChunks[] = $chunk;
-}
-$contextText = implode("\n\n", $stampedChunks);
-
-
-$prompt = "Answer the following question using the given context:\n\nContext:\n$contextText\n\nQuestion:\n$question\n\nAt the end of your answer, add page citations in the format <pgX><pgY>.";
+// 6. Query Cohere API
 $coherePayload = json_encode([
     "model" => "command-r-plus",
     "prompt" => $prompt,
@@ -88,37 +117,28 @@ curl_setopt_array($ch, [
 ]);
 
 $response = curl_exec($ch);
-$error = curl_error($ch);
 curl_close($ch);
-
-if ($error || !$response) {
-    echo json_encode(['answer' => 'Error contacting Cohere API', 'debug' => $error]);
-    exit();
-}
 
 $responseData = json_decode($response, true);
 $answerText = trim($responseData['generations'][0]['text'] ?? '');
-
 if (!$answerText) {
-    echo json_encode(['answer' => '⚠️ Invalid response from Cohere.', 'raw' => $response]);
+    echo json_encode(['answer' => 'AI response unavailable.']);
     exit();
 }
 
-$answerText = preg_replace('/<(\d+)>/', '<pg$1>', $answerText);
-preg_match_all('/<pg(\d+)>/', $answerText, $matches);
-$usedPages = array_unique(array_map('intval', $matches[1]));
-
-
-$sanitizedAnswer = preg_replace('/<pg\d+>/', '', $answerText);
-$finalAnswer = rtrim($sanitizedAnswer);
+// 7. Clean final response
+$finalAnswer = preg_replace('/<pg\d+>/', '', $answerText);
+$finalAnswer = rtrim($finalAnswer);
 if (!preg_match('/\.\s*$/', $finalAnswer)) {
     $finalAnswer .= ".";
 }
 
-$filteredCitations = array_map(fn($pg) => ['page' => $pg], $usedPages);
+// 8. Match answer against PDF pages
+$pageHits = matchPagesFromAnswer($finalAnswer, $filename);
+$pageNumbers = array_map(fn($pg) => ['page' => $pg], $pageHits);
 
+// 9. Send final response
 echo json_encode([
     'answer' => $finalAnswer,
-    'citations' => $filteredCitations,
-    'debug_context' => $contextText
+    'citations' => $pageNumbers
 ]);
